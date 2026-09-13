@@ -166,8 +166,11 @@ instance warm and doubling as an external availability/latency check.
 so a single request can be traced end to end. Every meaningful domain event is
 logged: `transfer.created`, `transfer.debited`, `transfer.credited`,
 `transfer.declined`, `transfer.completed`, `transfer.idempotent_replay`,
-`transfer.conflict`, and the deposit/get-or-create events. Made publicly viewable as
-a screen recording of the log stream during a burst run:
+`transfer.conflict`, and the deposit/get-or-create events.
+
+Made publicly viewable as a **screen-recorded video of the live log stream** captured
+during a burst run and uploaded to Google Drive (structured JSON with correlation ids
+visible as the domain events stream):
 https://drive.google.com/file/d/1kOrOatONNnfjCdMLvFpJYexmSwRXUxBX/view?usp=drive_link
 
 **Metrics.** Exposed at `/actuator/prometheus`: request rate and error rate
