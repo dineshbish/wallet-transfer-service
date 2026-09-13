@@ -1,0 +1,10 @@
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+docs/
+scripts/
+README.md
+*.md
+.mvn/
