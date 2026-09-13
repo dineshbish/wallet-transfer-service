@@ -1,5 +1,22 @@
 # Wallet & P2P Transfer — Design Write-up
 
+**Live base URL:** https://wallet-transfer-service-8kt0.onrender.com
+
+## API
+
+All endpoints require `Authorization: Bearer <token>` (the token value identifies
+the user). Bodies and responses are snake_case; money is integer paise.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/wallets` | Get-or-create the caller's wallet → `{id, user_id, balance_paise}` |
+| `GET`  | `/wallets/{id}` | Current balance |
+| `POST` | `/wallets/{id}/deposit` | Add outside funds (funding boundary). Body: `{amount_paise, idempotency_key}` |
+| `POST` | `/transfers` | Move money. Body: `{from, to, amount_paise, idempotency_key}` → `200` with status `COMPLETED`/`DECLINED`; same key + different body → `409` |
+| `GET`  | `/transfers/{id}` | Transfer status |
+| `GET`  | `/actuator/health` | Liveness/readiness |
+| `GET`  | `/actuator/prometheus` | Metrics |
+
 ## Data model
 
 Three tables (see [migrations](../src/main/resources/db/migration)):
@@ -150,7 +167,8 @@ so a single request can be traced end to end. Every meaningful domain event is
 logged: `transfer.created`, `transfer.debited`, `transfer.credited`,
 `transfer.declined`, `transfer.completed`, `transfer.idempotent_replay`,
 `transfer.conflict`, and the deposit/get-or-create events. Made publicly viewable as
-a screen recording of the log stream during a burst run.
+a screen recording of the log stream during a burst run:
+https://drive.google.com/file/d/1kOrOatONNnfjCdMLvFpJYexmSwRXUxBX/view?usp=drive_link
 
 **Metrics.** Exposed at `/actuator/prometheus`: request rate and error rate
 (`http_server_requests_seconds_count` with `status`/`outcome` tags), latency **p99**
