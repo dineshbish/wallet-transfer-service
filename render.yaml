@@ -1,0 +1,41 @@
+# Render Blueprint: provisions a free managed Postgres and the containerized app,
+# and wires the database connection into the app automatically.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> connect this repo -> Apply.
+
+databases:
+  - name: wallet-db
+    plan: free
+    databaseName: wallet
+    user: wallet
+
+services:
+  - type: web
+    name: wallet-transfer-service
+    runtime: docker
+    plan: free
+    region: singapore            # pick the region nearest you; keep db + app together
+    healthCheckPath: /actuator/health/readiness
+    autoDeploy: true
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: wallet-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: wallet-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: wallet-db
+          property: database
+      - key: DATABASE_USERNAME
+        fromDatabase:
+          name: wallet-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: wallet-db
+          property: password
+      # PORT is injected by Render automatically; the app reads it.

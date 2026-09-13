@@ -91,11 +91,18 @@ mvn test
 ## Deploy (free tier, ₹0)
 
 Any container host with a free managed Postgres works (Render / Railway / Fly.io /
-Koyeb). The image is a self-contained multi-stage build. Provide these env vars:
+Koyeb). The image is a self-contained multi-stage build.
+
+**Render (one-click via blueprint):** the repo ships a [render.yaml](render.yaml)
+that provisions a free Postgres and the app and wires them together. In Render:
+*New → Blueprint → connect this repo → Apply*.
+
+**Any other host:** provide the connection either as a full JDBC URL, or as parts:
 
 | Env | Meaning |
 | --- | ------- |
-| `DATABASE_URL` | e.g. `jdbc:postgresql://host:5432/db` |
+| `DATABASE_URL` | full JDBC URL, e.g. `jdbc:postgresql://host:5432/db` (takes precedence) |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | alternative to `DATABASE_URL`; the JDBC URL is composed from these |
 | `DATABASE_USERNAME` | db user |
 | `DATABASE_PASSWORD` | db password |
 | `PORT` | port to listen on (Render/Railway set this automatically) |

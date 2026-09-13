@@ -6,7 +6,10 @@ spring:
     # while Java stays camelCase. This maps between them for every request/response.
     property-naming-strategy: SNAKE_CASE
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/wallet}
+    # Either set DATABASE_URL directly (docker-compose does), or provide the parts
+    # DB_HOST / DB_PORT / DB_NAME and the JDBC URL is composed from them (this is
+    # what the Render blueprint injects from the managed Postgres).
+    url: ${DATABASE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:wallet}}
     username: ${DATABASE_USERNAME:wallet}
     password: ${DATABASE_PASSWORD:wallet}
     hikari:
