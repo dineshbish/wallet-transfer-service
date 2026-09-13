@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: wallet-transfer-service
+  jackson:
+    # The API contract is snake_case (amount_paise, idempotency_key, balance_paise)
+    # while Java stays camelCase. This maps between them for every request/response.
+    property-naming-strategy: SNAKE_CASE
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/wallet}
+    username: ${DATABASE_USERNAME:wallet}
+    password: ${DATABASE_PASSWORD:wallet}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      pool-name: wallet-pool
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+# Native structured JSON logging (Spring Boot 3.4+). Every line is one JSON
+# object; the correlation id is threaded in from the MDC by CorrelationIdFilter.
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    root: INFO
+    com.dinesh.wallet: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    # p99 (and friends) for request latency, plus a histogram for server-side
+    # aggregation across instances.
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
