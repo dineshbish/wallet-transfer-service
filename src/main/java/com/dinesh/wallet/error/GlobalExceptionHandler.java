@@ -12,6 +12,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.stream.Collectors;
@@ -60,6 +61,13 @@ public class GlobalExceptionHandler {
     })
     public ResponseEntity<ApiError> handleMalformed(Exception ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException ex) {
+        // Unknown path (often bot/scanner traffic on the public URL). A quiet 404,
+        // not a 500 with a stack trace.
+        return build(HttpStatus.NOT_FOUND, "no such resource");
     }
 
     @ExceptionHandler(Exception.class)

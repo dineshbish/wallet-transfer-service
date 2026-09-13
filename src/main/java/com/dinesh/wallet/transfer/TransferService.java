@@ -77,7 +77,16 @@ public class TransferService {
                 transferId, idempotencyKey, from, to, amountPaise,
                 TransferStatus.PENDING, requestHash, null);
 
-        // Step 2: claim the key. Zero rows affected => the key already exists.
+        // Step 2: establish the global lock order FIRST — lock both wallet rows
+        // FOR UPDATE in ascending id order, before any other row lock in this
+        // transaction. This must precede the transfers INSERT: that INSERT's
+        // foreign keys take KEY SHARE locks on these same wallet rows (in
+        // unsorted from/to order), and a later FOR UPDATE would try to upgrade
+        // them, which deadlocks two opposite-direction transfers. Locking FOR
+        // UPDATE up front means the FK's KEY SHARE is already subsumed.
+        wallets.lockInOrder(sortedIds(from, to));
+
+        // Step 3: claim the key. Zero rows affected => the key already exists.
         int claimed = transfers.insertPendingIfAbsent(pending);
         if (claimed == 0) {
             return handleExistingKey(idempotencyKey, requestHash);
@@ -85,9 +94,6 @@ public class TransferService {
 
         log.info("transfer.created transfer_id={} from={} to={} amount_paise={}",
                 transferId, from, to, amountPaise);
-
-        // Step 3: deterministic lock order across the two wallets.
-        wallets.lockInOrder(sortedIds(from, to));
 
         // Step 4: atomic conditional debit.
         int debited = wallets.debitIfSufficient(from, amountPaise);

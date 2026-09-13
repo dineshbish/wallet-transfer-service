@@ -107,12 +107,19 @@ for j in $(seq "$CONTENTION_TRANSFERS"); do
   echo "${WALLETS[$fi]} ${WALLETS[$ti]} $amt $j" >> "$TMP/jobs.txt"
 done
 
+# Each request appends its HTTP status code; a 5xx means the server errored
+# (e.g. a deadlock storm) rather than cleanly applying or declining the transfer.
+: > "$TMP/status.txt"
 xargs -P 32 -L1 bash -c '
   from="$1"; to="$2"; amt="$3"; n="$4"
-  curl -s -X POST "'"$BASE_URL"'/transfers" -H "Authorization: Bearer cont" \
-    -H "Content-Type: application/json" \
-    -d "{\"from\":\"$from\",\"to\":\"$to\",\"amount_paise\":$amt,\"idempotency_key\":\"cont-$n-$RANDOM\"}" >/dev/null
+  code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "'"$BASE_URL"'/transfers" \
+    -H "Authorization: Bearer cont" -H "Content-Type: application/json" \
+    -d "{\"from\":\"$from\",\"to\":\"$to\",\"amount_paise\":$amt,\"idempotency_key\":\"cont-$n-$RANDOM\"}")
+  echo "$code" >> "'"$TMP"'/status.txt"
 ' _ < "$TMP/jobs.txt"
+
+FIVEXX=$(grep -c '^5' "$TMP/status.txt" 2>/dev/null || true)
+FIVEXX=${FIVEXX:-0}
 
 TOTAL_AFTER=0; ANY_NEGATIVE=0
 for W in "${WALLETS[@]}"; do
@@ -122,6 +129,7 @@ for W in "${WALLETS[@]}"; do
 done
 [ "$TOTAL_AFTER" -eq "$TOTAL_BEFORE" ] && ok "total conserved (before=$TOTAL_BEFORE after=$TOTAL_AFTER)" || bad "total changed: before=$TOTAL_BEFORE after=$TOTAL_AFTER"
 [ "$ANY_NEGATIVE" -eq 0 ] && ok "no wallet went negative" || bad "a wallet went negative"
+[ "$FIVEXX" -eq 0 ] && ok "no 5xx under contention (no deadlock storm)" || bad "$FIVEXX requests returned 5xx (deadlock or server error)"
 echo
 
 # ===========================================================================

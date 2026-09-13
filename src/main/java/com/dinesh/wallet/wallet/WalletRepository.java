@@ -52,19 +52,24 @@ public class WalletRepository {
 
     /**
      * Locks the given wallet rows FOR UPDATE in a deterministic order (ascending
-     * id). Acquiring locks in a single, globally consistent order is what makes
-     * A->B and B->A transfers deadlock-free: every transaction that touches the
-     * same pair locks them in the same sequence.
+     * id), one row per statement. Acquiring locks in a single, globally consistent
+     * order is what makes A->B and B->A transfers deadlock-free: every transaction
+     * that touches the same pair locks them in the same sequence.
+     *
+     * <p>Each row is locked with its own single-row {@code SELECT ... FOR UPDATE}.
+     * A single {@code WHERE id IN (a, b) ORDER BY id FOR UPDATE} does NOT work:
+     * Postgres acquires the row locks in scan (heap) order and only applies the
+     * ORDER BY afterwards, so with random-UUID ids the actual lock order is
+     * undefined and two opposite-direction transfers can still deadlock. Issuing
+     * the locks one at a time in sorted order is what actually pins the order.
      */
     public void lockInOrder(List<UUID> walletIds) {
-        jdbc.query("""
-                SELECT id FROM wallets
-                WHERE id IN (:ids)
-                ORDER BY id
-                FOR UPDATE
-                """,
-                new MapSqlParameterSource("ids", walletIds),
-                rs -> { /* rows discarded; the point is the locks */ });
+        List<UUID> ordered = walletIds.stream().sorted().toList();
+        for (UUID id : ordered) {
+            jdbc.query("SELECT id FROM wallets WHERE id = :id FOR UPDATE",
+                    new MapSqlParameterSource("id", id),
+                    rs -> { /* row discarded; the point is the lock */ });
+        }
     }
 
     /**

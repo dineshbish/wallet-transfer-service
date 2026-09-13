@@ -20,8 +20,10 @@ ever. Balances are non-negative by DB constraint, not just by app logic.
 
 A single READ COMMITTED transaction does the whole move:
 
-1. **Lock both wallet rows `FOR UPDATE` in ascending `id` order**
-   (`SELECT id ... WHERE id IN (:from,:to) ORDER BY id FOR UPDATE`).
+1. **Lock both wallet rows `FOR UPDATE` in ascending `id` order, one row per
+   statement** (`SELECT id FROM wallets WHERE id = :id FOR UPDATE`, issued first
+   for the lower id, then the higher), before any other row lock in the
+   transaction.
 2. **Atomic conditional debit:** `UPDATE wallets SET balance_paise = balance_paise - :amt
    WHERE id = :from AND balance_paise >= :amt`. Rows-affected = 0 ⇒ the balance was
    insufficient ⇒ decline cleanly (mark `DECLINED`, no credit, commit). No
@@ -35,10 +37,25 @@ subtract and one matching add inside one transaction — it commits together or 
 at all.
 
 **Deadlock avoidance.** The danger is A→B and B→A running at once and locking the
-two rows in opposite orders. Acquiring the row locks in a single global order
-(ascending `id`) before touching balances means every transaction that touches the
-same pair locks them in the same sequence, so the AB–BA cycle cannot form. I debit
-before crediting, so a decline needs no rollback of an already-applied credit.
+two rows in opposite orders. I acquire the row locks in a single global order
+(ascending `id`) so every transaction that touches the same pair locks them in the
+same sequence, so the AB–BA cycle cannot form. Two details make this actually work:
+
+- *One row per `SELECT ... FOR UPDATE`, not `WHERE id IN (a,b) ORDER BY id`.*
+  Postgres acquires `FOR UPDATE` locks in **scan (heap) order** and applies the
+  `ORDER BY` only afterwards, so with random-UUID ids a single `IN (...) ORDER BY`
+  statement does not control the lock order and still deadlocks. Locking one row at
+  a time, in sorted order, is what pins the order.
+- *Lock the wallets before the `transfers` INSERT.* The transfers row has foreign
+  keys to both wallets, so inserting it takes a `KEY SHARE` lock on each referenced
+  wallet row (in unsorted from/to order). If the `FOR UPDATE` came after, it would
+  try to **upgrade** those `KEY SHARE` locks to exclusive, and two opposite
+  transfers deadlock on the upgrade. Taking `FOR UPDATE` first (in sorted order)
+  means the later FK `KEY SHARE` is already subsumed — no upgrade, no deadlock.
+
+I debit before crediting, so a decline needs no rollback of an already-applied
+credit. Verified: the burst script fires hundreds of concurrent A→B and B→A
+transfers and asserts **zero 5xx** alongside conservation.
 
 **Heavier alternatives I rejected.**
 - *`SERIALIZABLE` isolation everywhere.* Correct, but it pushes the cost onto the

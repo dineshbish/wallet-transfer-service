@@ -156,11 +156,15 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
                 try {
                     out.add(f.get(30, TimeUnit.SECONDS));
                 } catch (Exception e) {
-                    // A ConflictException here is a legitimate outcome for some tests;
-                    // real failures (deadlocks, 500s) surface via the assertions.
                     failures.incrementAndGet();
                 }
             }
+            // None of the concurrent scenarios here should ever throw: declines
+            // return DECLINED, replays return the original. A failure means a
+            // deadlock or other server error — the exact regression we guard against.
+            assertThat(failures.get())
+                    .as("unexpected failures (e.g. deadlocks) under contention")
+                    .isZero();
             return out;
         } finally {
             pool.shutdownNow();
