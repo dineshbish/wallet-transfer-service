@@ -112,3 +112,9 @@ are environment-driven with local-friendly defaults.
 See [docs/WRITEUP.md](docs/WRITEUP.md) for the data model, the simplest-correct
 concurrency mechanism (and the heavier alternatives rejected), where idempotency
 lives, the consistency/availability call, and the AI directed-vs-decided disclosure.
+
+## Architecture & flow diagrams
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system/deployment diagram,
+the transfer sequence flow, the idempotency decision flow, the startup/migration
+sequence, and the data-model ER diagram (Mermaid — renders on GitHub).
