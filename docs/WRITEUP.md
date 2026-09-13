@@ -121,6 +121,43 @@ consumer side. I deliberately did **not** build this now — it is unnecessary
 complexity for the required load, and the single-primary + row-lock design is the
 simplest thing that is correct.
 
+## Deploy, containerize, observe
+
+**Live URL:** https://wallet-transfer-service-8kt0.onrender.com
+**Repo:** https://github.com/dineshbish/wallet-transfer-service
+
+**Container.** A multi-stage Dockerfile: a Maven/JDK stage builds the jar, a slim
+JRE stage runs it. It runs as a **non-root** user and defines a `HEALTHCHECK` that
+curls `/actuator/health/liveness`. `docker compose up --build` brings up the app
+plus Postgres with **one command**; the app waits for Postgres's healthcheck before
+starting, and Flyway applies the schema migrations (`V1`–`V3`) on boot, so a fresh
+clone is correct the moment it is healthy.
+
+**Deploy.** Deployed to Render from a checked-in [`render.yaml`](../render.yaml)
+blueprint that provisions a free managed Postgres and the web service and wires the
+database connection into the app. App and database are pinned to the same region so
+the app resolves the database's internal hostname. Cost is **₹0** — no card, no paid
+add-ons.
+
+**Logs.** Structured **JSON** (ECS format), one object per line, each carrying a
+`correlation_id` (honours an inbound `X-Correlation-Id`, else generated per request)
+so a single request can be traced end to end. Every meaningful domain event is
+logged: `transfer.created`, `transfer.debited`, `transfer.credited`,
+`transfer.declined`, `transfer.completed`, `transfer.idempotent_replay`,
+`transfer.conflict`, and the deposit/get-or-create events. Made publicly viewable as
+a screen recording of the log stream during a burst run.
+
+**Metrics.** Exposed at `/actuator/prometheus`: request rate and error rate
+(`http_server_requests_seconds_count` with `status`/`outcome` tags), latency **p99**
+via histogram buckets (`histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, uri))`),
+and **domain counters** — `wallet_transfers_completed_total`,
+`wallet_transfers_declined_total{reason="insufficient_funds"}`,
+`wallet_transfers_idempotent_replays_total`, `wallet_transfers_conflicts_total`.
+
+**Verification.** [`scripts/burst.sh`](../scripts/burst.sh) reproduces all three
+graded invariants against the live URL in one command and asserts them (including
+zero 5xx under the A→B + B→A contention cross); it passes 8/8 against production.
+
 ## Reversal (R3 extension) — how it fits
 
 A refund reuses the exact same primitive with roles swapped: a new transfer row
