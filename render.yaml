@@ -8,13 +8,15 @@ databases:
     plan: free
     databaseName: wallet
     user: wallet
+    region: oregon               # MUST match the web service region so the app can
+                                 # resolve the database's internal hostname
 
 services:
   - type: web
     name: wallet-transfer-service
     runtime: docker
     plan: free
-    region: singapore            # pick the region nearest you; keep db + app together
+    region: oregon               # keep db + app in the SAME region
     healthCheckPath: /actuator/health/readiness
     autoDeploy: true
     envVars:
