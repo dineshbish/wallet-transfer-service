@@ -139,6 +139,11 @@ database connection into the app. App and database are pinned to the same region
 the app resolves the database's internal hostname. Cost is **₹0** — no card, no paid
 add-ons.
 
+**Uptime.** Render's free web tier idles a service after ~15 minutes and cold-starts
+it on the next request. To avoid a cold-start timeout on the first probe, a free
+**UptimeRobot** HTTP monitor pings `/actuator/health` every 5 minutes, keeping the
+instance warm and doubling as an external availability/latency check.
+
 **Logs.** Structured **JSON** (ECS format), one object per line, each carrying a
 `correlation_id` (honours an inbound `X-Correlation-Id`, else generated per request)
 so a single request can be traced end to end. Every meaningful domain event is
