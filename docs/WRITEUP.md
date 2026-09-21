@@ -193,8 +193,10 @@ and **domain counters** — `wallet_transfers_completed_total`,
 `wallet_transfers_idempotent_replays_total`, `wallet_transfers_conflicts_total`.
 
 **Verification.** [`scripts/burst.sh`](../scripts/burst.sh) reproduces all three
-graded invariants against the live URL in one command and asserts them (including
-zero 5xx under the A→B + B→A contention cross); it passes 8/8 against production.
+graded invariants plus the authorization check against the live URL in one command
+and asserts them (including zero 5xx under the A→B + B→A contention cross, and that
+a caller cannot move money out of, or read, a wallet they do not own); it passes
+11/11 against production.
 
 ## Reversal (R3 extension) — how it fits
 
@@ -218,7 +220,11 @@ free-tier options.
   conditional-`UPDATE` + sorted-`FOR UPDATE` mechanism for conservation and
   no-overdraft; putting idempotency in the same transaction as the money move;
   READ COMMITTED over SERIALIZABLE; money as integer paise end to end; and the
-  choice of Java/Spring Boot and the free-tier deployment path.
+  choice of Java/Spring Boot and the free-tier deployment path. After the first
+  review flagged that the transfer sender was taken from the request body, I
+  decided the authorization model — bind the sender to the auth token, reject a
+  transfer out of a wallet the caller does not own (`403`), and scope reads and
+  deposits to the owner — and directed the AI to implement exactly that.
 - **AI decided** (I accepted its output): boilerplate wiring (filters, exception-
   handler shape), the ECS structured-log format, the exact metric names, the
   integration-test scaffolding, and the burst script's mechanics — all of which I
