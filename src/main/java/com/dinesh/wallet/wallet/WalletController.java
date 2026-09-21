@@ -33,19 +33,21 @@ public class WalletController {
         return ResponseEntity.status(HttpStatus.OK).body(WalletResponse.from(wallet));
     }
 
+    /** Returns the balance only if the authenticated caller owns the wallet (else 403). */
     @GetMapping("/{id}")
     public WalletResponse getById(@PathVariable UUID id) {
-        return WalletResponse.from(walletService.getById(id));
+        String caller = AuthContext.requireUserId();
+        return WalletResponse.from(walletService.getOwnedById(caller, id));
     }
 
     /**
-     * Adds outside funds to a wallet (the funding boundary used to seed balances).
-     * Idempotent on {@code idempotencyKey}.
+     * Adds outside funds to a wallet the caller owns (the funding boundary used to
+     * seed balances). Idempotent on {@code idempotencyKey}.
      */
     @PostMapping("/{id}/deposit")
     public WalletResponse deposit(@PathVariable UUID id, @Valid @RequestBody DepositRequest request) {
-        AuthContext.requireUserId();
-        Wallet wallet = walletService.deposit(id, request.amountPaise(), request.idempotencyKey());
+        String caller = AuthContext.requireUserId();
+        Wallet wallet = walletService.deposit(caller, id, request.amountPaise(), request.idempotencyKey());
         return WalletResponse.from(wallet);
     }
 }

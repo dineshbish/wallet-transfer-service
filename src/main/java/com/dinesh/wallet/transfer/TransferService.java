@@ -2,8 +2,10 @@ package com.dinesh.wallet.transfer;
 
 import com.dinesh.wallet.error.BadRequestException;
 import com.dinesh.wallet.error.ConflictException;
+import com.dinesh.wallet.error.ForbiddenException;
 import com.dinesh.wallet.error.NotFoundException;
 import com.dinesh.wallet.observability.TransferMetrics;
+import com.dinesh.wallet.wallet.Wallet;
 import com.dinesh.wallet.wallet.WalletRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,16 +60,24 @@ public class TransferService {
      * </ol>
      */
     @Transactional
-    public Transfer transfer(UUID from, UUID to, long amountPaise, String idempotencyKey) {
+    public Transfer transfer(String callerUserId, UUID from, UUID to, long amountPaise, String idempotencyKey) {
         if (from.equals(to)) {
             throw new BadRequestException("from and to wallets must be different");
         }
         // Confirm both wallets exist up front (clean 404 instead of an FK violation).
-        if (wallets.findById(from).isEmpty()) {
-            throw new NotFoundException("source wallet not found: " + from);
-        }
+        Wallet fromWallet = wallets.findById(from)
+                .orElseThrow(() -> new NotFoundException("source wallet not found: " + from));
         if (wallets.findById(to).isEmpty()) {
             throw new NotFoundException("destination wallet not found: " + to);
+        }
+
+        // Authorization: the caller may only move money out of a wallet they own.
+        // The sender is bound to the auth token, not trusted from the request body,
+        // so a caller cannot drain someone else's wallet by naming it in `from`.
+        if (!fromWallet.userId().equals(callerUserId)) {
+            log.info("transfer.forbidden caller={} from={} from_owner={}",
+                    callerUserId, from, fromWallet.userId());
+            throw new ForbiddenException("caller does not own source wallet " + from);
         }
 
         String requestHash = hash(from, to, amountPaise);
@@ -116,9 +126,24 @@ public class TransferService {
         return withStatus(pending, TransferStatus.COMPLETED);
     }
 
+    /** Internal lookup with no ownership check; used by tests. */
     public Transfer getById(UUID id) {
         return transfers.findById(id)
                 .orElseThrow(() -> new NotFoundException("transfer not found: " + id));
+    }
+
+    /**
+     * Reads a transfer, enforcing that {@code callerUserId} is a party to it — the
+     * owner of either the source or the destination wallet. Otherwise 403.
+     */
+    public Transfer getVisibleById(String callerUserId, UUID id) {
+        Transfer transfer = getById(id);
+        String fromOwner = wallets.findById(transfer.fromWalletId()).map(Wallet::userId).orElse(null);
+        String toOwner = wallets.findById(transfer.toWalletId()).map(Wallet::userId).orElse(null);
+        if (!callerUserId.equals(fromOwner) && !callerUserId.equals(toOwner)) {
+            throw new ForbiddenException("caller is not a party to transfer " + id);
+        }
+        return transfer;
     }
 
     private Transfer handleExistingKey(String idempotencyKey, String requestHash) {

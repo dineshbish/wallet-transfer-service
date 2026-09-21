@@ -28,14 +28,18 @@ public class TransferController {
      */
     @PostMapping
     public TransferResponse create(@Valid @RequestBody TransferRequest request) {
-        AuthContext.requireUserId(); // reject unauthenticated callers (401)
+        String caller = AuthContext.requireUserId(); // 401 if unauthenticated
+        // The caller (from the token) must own the `from` wallet; the service
+        // rejects a transfer out of a wallet the caller does not own (403).
         Transfer transfer = transferService.transfer(
-                request.from(), request.to(), request.amountPaise(), request.idempotencyKey());
+                caller, request.from(), request.to(), request.amountPaise(), request.idempotencyKey());
         return TransferResponse.from(transfer);
     }
 
+    /** Returns the transfer only if the caller is a party to it (sender or recipient), else 403. */
     @GetMapping("/{id}")
     public TransferResponse getById(@PathVariable UUID id) {
-        return TransferResponse.from(transferService.getById(id));
+        String caller = AuthContext.requireUserId();
+        return TransferResponse.from(transferService.getVisibleById(caller, id));
     }
 }

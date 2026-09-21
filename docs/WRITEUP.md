@@ -4,18 +4,30 @@
 
 ## API
 
-All endpoints require `Authorization: Bearer <token>` (the token value identifies
-the user). Bodies and responses are snake_case; money is integer paise.
+Every non-actuator endpoint requires `Authorization: Bearer <token>` (the token
+value identifies the user; missing/blank → `401`). Bodies and responses are
+snake_case; money is integer paise.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `POST` | `/wallets` | Get-or-create the caller's wallet → `{id, user_id, balance_paise}` |
-| `GET`  | `/wallets/{id}` | Current balance |
-| `POST` | `/wallets/{id}/deposit` | Add outside funds (funding boundary). Body: `{amount_paise, idempotency_key}` |
-| `POST` | `/transfers` | Move money. Body: `{from, to, amount_paise, idempotency_key}` → `200` with status `COMPLETED`/`DECLINED`; same key + different body → `409` |
-| `GET`  | `/transfers/{id}` | Transfer status |
+| `POST` | `/wallets` | Get-or-create the caller's own wallet → `{id, user_id, balance_paise}` |
+| `GET`  | `/wallets/{id}` | Balance — only if the caller owns the wallet (else `403`) |
+| `POST` | `/wallets/{id}/deposit` | Add outside funds to a wallet the caller owns (`403` otherwise). Body: `{amount_paise, idempotency_key}` |
+| `POST` | `/transfers` | Move money. Body: `{from, to, amount_paise, idempotency_key}`. Caller must own `from` (`403` otherwise) → `200` with status `COMPLETED`/`DECLINED`; same key + different body → `409` |
+| `GET`  | `/transfers/{id}` | Transfer status — only if the caller is a party (sender or recipient), else `403` |
 | `GET`  | `/actuator/health` | Liveness/readiness |
 | `GET`  | `/actuator/prometheus` | Metrics |
+
+## Authorization (ownership)
+
+Authentication identifies the caller; authorization binds every money operation to
+what that caller owns. The sender of a transfer is **derived from the auth token**,
+not trusted from the request body: the `from` wallet must be owned by the caller, or
+the transfer is rejected `403` before any money moves — so no one can drain a wallet
+they do not own by naming it in `from`. The same ownership rule scopes reads
+(`GET /wallets/{id}` is owner-only; `GET /transfers/{id}` is limited to the two
+parties) and deposits (only into your own wallet). Every wallet row carries its
+owner (`user_id`, UNIQUE), and the check compares that to the token on each request.
 
 ## Data model
 

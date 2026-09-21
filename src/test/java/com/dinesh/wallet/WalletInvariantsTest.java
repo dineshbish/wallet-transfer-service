@@ -1,6 +1,7 @@
 package com.dinesh.wallet;
 
 import com.dinesh.wallet.error.ConflictException;
+import com.dinesh.wallet.error.ForbiddenException;
 import com.dinesh.wallet.transfer.Transfer;
 import com.dinesh.wallet.transfer.TransferService;
 import com.dinesh.wallet.transfer.TransferStatus;
@@ -49,13 +50,13 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
     void idempotentStormAppliesTransferExactlyOnce() throws Exception {
         Wallet a = walletService.getOrCreate("storm-a-" + UUID.randomUUID());
         Wallet b = walletService.getOrCreate("storm-b-" + UUID.randomUUID());
-        walletService.deposit(a.id(), 100_000, "seed-" + UUID.randomUUID());
+        walletService.deposit(a.userId(), a.id(), 100_000, "seed-" + UUID.randomUUID());
 
         String key = "idem-" + UUID.randomUUID();
         int threads = 30;
 
         List<Transfer> results = runConcurrently(threads,
-                () -> transferService.transfer(a.id(), b.id(), 5_000, key));
+                () -> transferService.transfer(a.userId(), a.id(), b.id(), 5_000, key));
 
         long distinctTransferIds = results.stream().map(Transfer::id).distinct().count();
         assertThat(distinctTransferIds).isEqualTo(1);
@@ -68,9 +69,9 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
     void overdraftIsDeclinedCleanly() {
         Wallet a = walletService.getOrCreate("od-a-" + UUID.randomUUID());
         Wallet b = walletService.getOrCreate("od-b-" + UUID.randomUUID());
-        walletService.deposit(a.id(), 1_000, "seed-" + UUID.randomUUID());
+        walletService.deposit(a.userId(), a.id(), 1_000, "seed-" + UUID.randomUUID());
 
-        Transfer t = transferService.transfer(a.id(), b.id(), 5_000, "od-" + UUID.randomUUID());
+        Transfer t = transferService.transfer(a.userId(), a.id(), b.id(), 5_000, "od-" + UUID.randomUUID());
 
         assertThat(t.status()).isEqualTo(TransferStatus.DECLINED);
         assertThat(walletService.getById(a.id()).balancePaise()).isEqualTo(1_000);
@@ -81,13 +82,41 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
     void sameKeyDifferentBodyIsConflict() {
         Wallet a = walletService.getOrCreate("cf-a-" + UUID.randomUUID());
         Wallet b = walletService.getOrCreate("cf-b-" + UUID.randomUUID());
-        walletService.deposit(a.id(), 100_000, "seed-" + UUID.randomUUID());
+        walletService.deposit(a.userId(), a.id(), 100_000, "seed-" + UUID.randomUUID());
         String key = "cf-" + UUID.randomUUID();
 
-        transferService.transfer(a.id(), b.id(), 5_000, key);
+        transferService.transfer(a.userId(), a.id(), b.id(), 5_000, key);
 
-        assertThatThrownBy(() -> transferService.transfer(a.id(), b.id(), 9_999, key))
+        assertThatThrownBy(() -> transferService.transfer(a.userId(), a.id(), b.id(), 9_999, key))
                 .isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void transferFromWalletNotOwnedIsForbidden() {
+        Wallet owner = walletService.getOrCreate("own-" + UUID.randomUUID());
+        Wallet victim = walletService.getOrCreate("victim-" + UUID.randomUUID());
+        walletService.deposit(victim.userId(), victim.id(), 100_000, "seed-" + UUID.randomUUID());
+
+        // The attacker is authenticated as `owner` but names the victim's wallet as `from`.
+        assertThatThrownBy(() ->
+                transferService.transfer(owner.userId(), victim.id(), owner.id(), 5_000,
+                        "steal-" + UUID.randomUUID()))
+                .isInstanceOf(ForbiddenException.class);
+
+        // No money moved out of the victim's wallet.
+        assertThat(walletService.getById(victim.id()).balancePaise()).isEqualTo(100_000);
+    }
+
+    @Test
+    void readingAnotherUsersWalletIsForbidden() {
+        Wallet owner = walletService.getOrCreate("read-own-" + UUID.randomUUID());
+        Wallet other = walletService.getOrCreate("read-other-" + UUID.randomUUID());
+
+        // Owner can read their own wallet.
+        assertThat(walletService.getOwnedById(owner.userId(), owner.id()).id()).isEqualTo(owner.id());
+        // But not someone else's.
+        assertThatThrownBy(() -> walletService.getOwnedById(owner.userId(), other.id()))
+                .isInstanceOf(ForbiddenException.class);
     }
 
     @Test
@@ -97,7 +126,7 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
         List<Wallet> wallets = new java.util.ArrayList<>();
         for (int i = 0; i < walletCount; i++) {
             Wallet w = walletService.getOrCreate("cont-" + i + "-" + UUID.randomUUID());
-            walletService.deposit(w.id(), seed, "seed-" + UUID.randomUUID());
+            walletService.deposit(w.userId(), w.id(), seed, "seed-" + UUID.randomUUID());
             wallets.add(w);
         }
         long totalBefore = wallets.stream()
@@ -112,11 +141,12 @@ class WalletInvariantsTest extends AbstractIntegrationTest {
             while (to == from) {
                 to = random.nextInt(walletCount);
             }
+            String fromOwner = wallets.get(from).userId();
             UUID fromId = wallets.get(from).id();
             UUID toId = wallets.get(to).id();
             long amount = (random.nextInt(3) + 1) * 20_000L;
             String key = "cont-" + i + "-" + UUID.randomUUID();
-            tasks.add(() -> transferService.transfer(fromId, toId, amount, key));
+            tasks.add(() -> transferService.transfer(fromOwner, fromId, toId, amount, key));
         }
 
         runAll(tasks);

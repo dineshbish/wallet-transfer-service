@@ -69,8 +69,8 @@ sequenceDiagram
     participant DB as Postgres
 
     C->>F: POST /transfers {from,to,amount_paise,idempotency_key} + Bearer
-    F->>TC: correlation id in MDC, user in AuthContext
-    TC->>TS: transfer(from, to, amount, key)
+    F->>TC: correlation id in MDC, caller in AuthContext (401 if no token)
+    TC->>TS: transfer(caller, from, to, amount, key)
 
     Note over TS,DB: BEGIN transaction
     TS->>TS: validate from ≠ to, amount > 0
@@ -78,7 +78,11 @@ sequenceDiagram
     alt a wallet is missing
         TS-->>C: 404 Not Found
     end
+    alt from wallet not owned by caller
+        TS-->>C: 403 Forbidden (cannot move money out of another's wallet)
+    end
 
+    TS->>DB: lock from & to FOR UPDATE, one row per stmt,<br/>ascending id order (deterministic → no deadlock),<br/>before the INSERT so the FK KEY SHARE is subsumed
     TS->>DB: INSERT transfer PENDING<br/>ON CONFLICT (idempotency_key) DO NOTHING
     alt rows inserted = 0 (key already exists)
         TS->>DB: SELECT existing transfer by key
@@ -88,7 +92,6 @@ sequenceDiagram
             TS-->>C: 200 OK — original result (idempotent replay)
         end
     else rows inserted = 1 (we own it)
-        TS->>DB: SELECT both wallet rows ORDER BY id FOR UPDATE<br/>(deterministic lock order → no deadlock)
         TS->>DB: UPDATE ... balance = balance - amt WHERE id=from AND balance >= amt
         alt rows affected = 0 (insufficient funds)
             TS->>DB: UPDATE transfer SET status = DECLINED

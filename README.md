@@ -9,17 +9,28 @@ with explicit SQL — no ORM hiding the locking), and Flyway migrations.
 ## API
 
 All endpoints require a bearer token (`Authorization: Bearer <token>`); the token
-value identifies the user. Actuator endpoints are open so logs/metrics are public.
+value identifies the user (missing/blank → `401`). Actuator endpoints are open so
+logs/metrics are public. Operations are **owner-scoped**: the caller may only act on
+and read wallets they own (see Authorization below).
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `POST` | `/wallets` | Get-or-create the caller's wallet. Returns `{id, user_id, balance_paise}`. |
-| `GET`  | `/wallets/{id}` | Current balance. |
-| `POST` | `/wallets/{id}/deposit` | Add outside funds (funding boundary). Body: `{amount_paise, idempotency_key}`. |
-| `POST` | `/transfers` | Move money. Body: `{from, to, amount_paise, idempotency_key}`. |
-| `GET`  | `/transfers/{id}` | Transfer status (`COMPLETED` / `DECLINED`). |
+| `POST` | `/wallets` | Get-or-create the caller's own wallet. Returns `{id, user_id, balance_paise}`. |
+| `GET`  | `/wallets/{id}` | Current balance — owner only (`403` otherwise). |
+| `POST` | `/wallets/{id}/deposit` | Add outside funds to a wallet the caller owns (`403` otherwise). Body: `{amount_paise, idempotency_key}`. |
+| `POST` | `/transfers` | Move money. Body: `{from, to, amount_paise, idempotency_key}`. Caller must own `from` (`403` otherwise). |
+| `GET`  | `/transfers/{id}` | Transfer status (`COMPLETED` / `DECLINED`) — sender or recipient only (`403` otherwise). |
 | `GET`  | `/actuator/health` | Health (liveness/readiness). |
 | `GET`  | `/actuator/prometheus` | Metrics. |
+
+### Authorization
+
+Authentication identifies the caller; authorization ties every money operation to
+what they own. A transfer's sender is **derived from the auth token**, not trusted
+from the request body — the `from` wallet must belong to the caller or the transfer
+is rejected `403` before any money moves. Reads are owner-scoped too:
+`GET /wallets/{id}` is owner-only and `GET /transfers/{id}` is limited to the sender
+and recipient. Deposits go only into the caller's own wallet.
 
 `POST /transfers` always responds `200 OK` with the transfer resource (status
 `COMPLETED` or `DECLINED`). A retry with the same `idempotency_key` returns the
